@@ -319,8 +319,6 @@ function extractMCPTags(text) {
 
 // ==================== ПОИСК НОВЫХ СООБЩЕНИЙ АССИСТЕНТА ====================
 
-let lastProcessedMessageCount = 0;
-
 function findAssistantMessagesWithTags() {
   console.log('🔍 MCP Bridge: Looking for assistant messages with MCP tags...');
   
@@ -345,7 +343,6 @@ function findAssistantMessagesWithTags() {
     }
     if (!hasTool) continue;
     
-    // Уникальный ID на основе содержимого
     const msgHash = fullText.substring(0, 100) + '_' + fullText.length;
     const msgId = el.dataset.mcpId || msgHash;
     
@@ -355,10 +352,6 @@ function findAssistantMessagesWithTags() {
     found++;
     console.log(`🔍 Found assistant message with MCP tag, processing...`);
     processAssistantMessage(el);
-  }
-  
-  if (found > 0) {
-    lastProcessedMessageCount = allElements.length;
   }
   
   return found;
@@ -459,11 +452,10 @@ async function processAssistantMessage(element) {
   processing = false;
 }
 
-// ==================== ТАЙМЕР (вместо MutationObserver) ====================
+// ==================== ТАЙМЕР ====================
 
 console.log('🔍 MCP Bridge: Starting periodic scan (every 2 seconds)...');
 
-// Сканируем каждые 2 секунды (не на каждое изменение DOM)
 setInterval(() => {
   const count = findAssistantMessagesWithTags();
   if (count > 0) {
@@ -493,44 +485,51 @@ console.log('✅ MCP Browser Bridge loaded');
 console.log('📦 Available tools:', AVAILABLE_TOOLS.join(', '));
 console.log('⚙️ Config:', config);
 
-// Первое сканирование при загрузке
 setTimeout(() => {
   const count = findAssistantMessagesWithTags();
   console.log(`🔍 Initial scan: found ${count} assistant messages with MCP tags`);
 }, 2000);
 
-// ==================== Стили ====================
+// ==================== СТИЛИ (с поддержкой тёмной темы) ====================
 
 const style = document.createElement('style');
 style.textContent = `
+  /* Блок "выполняется" */
   .mcp-executing {
-    background: #e3f2fd;
-    border: 1px solid #64b5f6;
+    background: #1a237e !important;
+    border: 1px solid #4caf50 !important;
     border-radius: 8px;
     padding: 8px 12px;
     margin: 4px 0;
     font-family: monospace;
     font-size: 13px;
+    color: #e0e0e0 !important;
     animation: mcp-pulse 1.5s infinite;
   }
+  
   @keyframes mcp-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.6; }
   }
+  
+  /* Блок результата */
   .mcp-result {
-    background: #f5f5f5;
-    border: 1px solid #66bb6a;
+    background: #1e1e1e !important;
+    border: 1px solid #4caf50 !important;
     border-radius: 8px;
     padding: 8px 12px;
     margin: 4px 0;
+    color: #e0e0e0 !important;
   }
+  
   .mcp-result-header {
     font-weight: bold;
     margin-bottom: 4px;
-    color: #2e7d32;
+    color: #66bb6a !important;
   }
+  
   .mcp-result-output {
-    background: #fff;
+    background: #2d2d2d !important;
     padding: 8px;
     border-radius: 4px;
     overflow-x: auto;
@@ -539,14 +538,17 @@ style.textContent = `
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-all;
+    color: #e0e0e0 !important;
   }
+  
+  /* Блок ошибки */
   .mcp-error {
-    background: #ffebee;
-    border: 1px solid #ef5350;
+    background: #311b1b !important;
+    border: 1px solid #ef5350 !important;
     border-radius: 8px;
     padding: 8px 12px;
     margin: 4px 0;
-    color: #c62828;
+    color: #ff8a80 !important;
     font-family: monospace;
   }
 `;
