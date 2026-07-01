@@ -1,127 +1,100 @@
-// popup.js — Управление настройками
+// popup.js — Настройки
 
 // Загружаем сохранённое
-chrome.storage.local.get(['mcpUrl', 'mcpToken', 'autoSend', 'sendDelay'], (data) => {
-  if (data.mcpUrl) document.getElementById('url').value = data.mcpUrl;
+chrome.storage.local.get(['bridgeUrl', 'mcpUrl', 'mcpToken', 'autoSend', 'sendDelay'], (data) => {
+  if (data.bridgeUrl) document.getElementById('bridgeUrl').value = data.bridgeUrl;
+  if (data.mcpUrl) document.getElementById('mcpUrl').value = data.mcpUrl;
   if (data.mcpToken) document.getElementById('token').value = data.mcpToken;
   document.getElementById('autoSend').checked = data.autoSend !== false;
   document.getElementById('sendDelay').value = data.sendDelay || 1;
-  updateStatus('info', 'Settings loaded');
+  updateStatus('Settings loaded');
 });
 
 // Сохраняем
 document.getElementById('save').addEventListener('click', () => {
-  const url = document.getElementById('url').value.trim();
+  const bridgeUrl = document.getElementById('bridgeUrl').value.trim() || 'http://127.0.0.1:8080';
+  const mcpUrl = document.getElementById('mcpUrl').value.trim() || 'http://127.0.0.1:3001/mcp';
   const token = document.getElementById('token').value.trim();
-  const autoSend = document.getElementById('autoSend').checked;
-  const sendDelay = parseFloat(document.getElementById('sendDelay').value) || 1;
-  
-  if (!url) {
-    updateStatus('error', '❌ Please enter server URL');
-    return;
-  }
   
   if (!token) {
-    updateStatus('error', '❌ Please enter GitHub token');
+    updateStatus('❌ Please enter GitHub token');
     return;
   }
   
   chrome.storage.local.set({
-    mcpUrl: url,
+    bridgeUrl: bridgeUrl,
+    mcpUrl: mcpUrl,
     mcpToken: token,
-    autoSend: autoSend,
-    sendDelay: sendDelay
+    autoSend: document.getElementById('autoSend').checked,
+    sendDelay: parseFloat(document.getElementById('sendDelay').value) || 1
   }, () => {
-    updateStatus('success', '✅ Settings saved!');
-    setTimeout(() => updateStatus('info', 'Ready'), 2000);
+    updateStatus('✅ Saved!');
+    setTimeout(() => updateStatus('Ready'), 2000);
   });
 });
 
 // Тест соединения
 document.getElementById('test').addEventListener('click', async () => {
-  const url = document.getElementById('url').value.trim();
-  const token = document.getElementById('token').value.trim();
+  const bridgeUrl = document.getElementById('bridgeUrl').value || 'http://127.0.0.1:8080';
+  const token = document.getElementById('token').value;
+  const status = document.getElementById('status');
   
-  if (!url || !token) {
-    updateStatus('error', '❌ Please enter both URL and token');
+  if (!token) {
+    updateStatus('❌ Please enter GitHub token');
     return;
   }
   
-  updateStatus('info', '⏳ Testing connection...');
+  updateStatus('⏳ Testing...');
   
   try {
-    const response = await fetch(url, {
+    // Проверяем Bridge
+    const bridgeRes = await fetch(`${bridgeUrl}/health`);
+    if (!bridgeRes.ok) throw new Error(`Bridge HTTP ${bridgeRes.status}`);
+    await bridgeRes.json();
+    
+    // Проверяем MCP через Bridge
+    const mcpRes = await fetch(`${bridgeUrl}/process`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'test',
-        method: 'tools/list',
-        params: {}
+        message: '==MCP:list_commits== {"owner":"LeonidYasin","repo":"synapse"}',
+        config: {},
+        token: token  // ← передаём токен
       })
     });
-
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('text/html')) {
-      updateStatus('error', '❌ Server returned HTML. Check URL and server status.');
-      return;
-    }
-
-    if (!response.ok) {
-      updateStatus('error', `❌ HTTP ${response.status}: ${response.statusText}`);
-      return;
-    }
-
-    const data = await response.json();
     
-    if (data.error) {
-      updateStatus('error', `❌ ${data.error.message}`);
-      return;
-    }
-
-    const tools = data.result?.tools || [];
-    updateStatus('success', `✅ Connected! ${tools.length} tools available`);
+    const data = await mcpRes.json();
+    if (data.error) throw new Error(data.error);
+    
+    const tools = data.tools || [];
+    const successCount = tools.filter(t => t.success).length;
+    updateStatus(`✅ Connected! ${successCount}/${tools.length} tools OK`);
     
   } catch (error) {
-    updateStatus('error', `❌ ${error.message}`);
+    updateStatus(`❌ ${error.message}`);
   }
 });
 
-// Ручное сканирование (для отладки, но можно оставить)
+// Сканирование
 document.getElementById('scan').addEventListener('click', () => {
-  updateStatus('info', '⏳ Scanning messages...');
+  updateStatus('⏳ Scanning...');
   
   chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
     if (!tabs[0] || !tabs[0].id) {
-      updateStatus('error', '❌ No active tab found');
+      updateStatus('❌ No active tab');
       return;
     }
     
-    chrome.tabs.sendMessage(tabs[0].id, {type: 'SCAN_MESSAGES'}, (response) => {
+    chrome.tabs.sendMessage(tabs[0].id, {type: 'SCAN'}, (response) => {
       if (chrome.runtime.lastError) {
-        updateStatus('error', '❌ ' + chrome.runtime.lastError.message);
+        updateStatus('❌ ' + chrome.runtime.lastError.message);
         return;
       }
-      
-      if (response?.success) {
-        updateStatus('success', `✅ Found ${response.count} messages with MCP tags`);
-        setTimeout(() => updateStatus('info', 'Ready (auto-scan every 3s)'), 3000);
-      } else {
-        updateStatus('error', '❌ Scan failed');
-      }
+      updateStatus(response?.success ? '✅ Scanned!' : '❌ Failed');
     });
   });
 });
 
-function updateStatus(type, message) {
-  const status = document.getElementById('status');
-  status.textContent = message;
-  status.className = '';
-  if (type === 'success') status.classList.add('status-success');
-  else if (type === 'error') status.classList.add('status-error');
-  else if (type === 'info') status.classList.add('status-info');
-  else status.classList.add('status-empty');
+function updateStatus(message) {
+  document.getElementById('status').textContent = message;
 }

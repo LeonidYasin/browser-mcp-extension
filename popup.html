@@ -3,82 +3,53 @@
 <head>
   <meta charset="utf-8">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { 
-      width: 360px; 
-      padding: 20px; 
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-      font-size: 13px;
-      background: #fafafa;
-    }
-    h3 { margin-bottom: 16px; font-size: 16px; color: #1a1a1a; }
-    .subtitle { font-size: 12px; color: #666; margin-top: -12px; margin-bottom: 16px; }
-    label { display: block; margin-top: 12px; font-weight: 600; font-size: 12px; color: #333; }
-    input, select { 
-      width: 100%; padding: 8px 10px; margin-top: 4px; border: 1px solid #ddd; border-radius: 6px; 
-      font-size: 13px; background: white; transition: border-color 0.2s;
-    }
-    input:focus, select:focus { outline: none; border-color: #1976d2; box-shadow: 0 0 0 2px rgba(25,118,210,0.1); }
-    .hint { font-size: 11px; color: #888; margin-top: 4px; }
-    .checkbox-group {
-      display: flex; align-items: center; gap: 10px; margin-top: 8px;
-    }
-    .checkbox-group input[type="checkbox"] {
-      width: 18px; height: 18px; margin: 0; cursor: pointer;
-    }
-    .checkbox-group label { margin: 0; cursor: pointer; font-weight: 400; }
-    .button-group {
-      display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap;
-    }
-    button { 
-      flex: 1; padding: 10px 12px; border: none; border-radius: 6px; 
-      cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s;
-      min-width: 80px;
-    }
-    #save { background: #1976d2; color: #fff; }
+    body { width: 340px; padding: 16px; font-family: -apple-system, sans-serif; font-size: 13px; }
+    h3 { margin-bottom: 12px; }
+    label { display: block; margin-top: 8px; font-weight: 600; font-size: 12px; }
+    input { width: 100%; padding: 6px 8px; margin-top: 4px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; }
+    input:focus { outline: none; border-color: #1976d2; }
+    .hint { font-size: 11px; color: #888; margin-top: 2px; }
+    button { padding: 8px 12px; margin-top: 8px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+    #save { background: #1976d2; color: #fff; width: 100%; }
     #save:hover { background: #1565c0; }
-    #test { background: #e0e0e0; color: #333; }
+    #test { background: #e0e0e0; color: #333; width: 100%; }
     #test:hover { background: #d0d0d0; }
-    #scan { background: #4caf50; color: #fff; }
+    #scan { background: #4caf50; color: #fff; width: 100%; }
     #scan:hover { background: #388e3c; }
-    #status { margin-top: 12px; font-size: 13px; min-height: 20px; padding: 8px 12px; border-radius: 6px; background: #f5f5f5; }
-    .status-success { background: #e8f5e9 !important; color: #2e7d32; }
-    .status-error { background: #ffebee !important; color: #c62828; }
-    .status-info { background: #e3f2fd !important; color: #0d47a1; }
-    .status-empty { background: #f5f5f5 !important; color: #666; }
-    .divider { border: none; border-top: 1px solid #eee; margin: 16px 0; }
+    #status { margin-top: 8px; font-size: 12px; min-height: 18px; padding: 6px; border-radius: 4px; background: #f5f5f5; }
+    .divider { border: none; border-top: 1px solid #eee; margin: 12px 0; }
   </style>
 </head>
 <body>
   <h3>🔌 MCP Bridge</h3>
-  <div class="subtitle">GitHub MCP Server v0.3.0</div>
   
-  <label>Server URL</label>
-  <input type="text" id="url" placeholder="http://127.0.0.1:3001/mcp">
-  <div class="hint">Default: http://127.0.0.1:3001/mcp</div>
+  <label>Bridge Server URL</label>
+  <input type="text" id="bridgeUrl" placeholder="http://127.0.0.1:8080">
+  <div class="hint">Локальный сервер обработки</div>
+  
+  <label>MCP Server URL</label>
+  <input type="text" id="mcpUrl" placeholder="http://127.0.0.1:3001/mcp">
+  <div class="hint">MCP-сервер с инструментами</div>
   
   <label>GitHub Token</label>
   <input type="password" id="token" placeholder="ghp_...">
-  <div class="hint">Personal Access Token with repo permissions</div>
+  <div class="hint">Токен для GitHub API</div>
   
   <hr class="divider">
   
-  <div class="checkbox-group">
-    <input type="checkbox" id="autoSend">
-    <label for="autoSend">✅ Auto-send results back to chat</label>
+  <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
+    <input type="checkbox" id="autoSend" style="width: 18px; height: 18px;">
+    <label for="autoSend" style="margin: 0; font-weight: 400;">Auto-send results</label>
   </div>
   
   <label>Send delay (seconds)</label>
   <input type="number" id="sendDelay" min="0" max="10" step="0.5" value="1">
-  <div class="hint">Delay before auto-sending (0 = instant)</div>
   
-  <div class="button-group">
-    <button id="save">💾 Save</button>
-    <button id="test">🔍 Test</button>
-    <button id="scan">📡 Scan Now</button>
-  </div>
+  <button id="save" style="margin-top: 12px;">💾 Save Settings</button>
+  <button id="test" style="margin-top: 6px;">🔍 Test Connection</button>
+  <button id="scan" style="margin-top: 6px;">📡 Scan Messages</button>
   
-  <div id="status" class="status-empty">Ready (auto-scan every 3s)</div>
+  <div id="status">Ready</div>
 
   <script src="popup.js"></script>
 </body>
