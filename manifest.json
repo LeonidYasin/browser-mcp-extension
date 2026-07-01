@@ -3,8 +3,15 @@
   "name": "MCP Bridge",
   "version": "2.0",
   "description": "Minimal browser bridge for MCP",
-  "permissions": ["storage"],
-  "host_permissions": ["http://127.0.0.1:3001/*", "http://127.0.0.1:8080/*"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:3001/*",
+    "http://127.0.0.1:8080/*"
+  ],
   "background": {
     "service_worker": "worker/index.js"
   },
@@ -13,9 +20,12 @@
     "js": ["content.js"],
     "run_at": "document_end"
   }],
-  "options_ui": {
-    "page": "popup.html",
-    "open_in_tab": false
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "MCP Bridge",
+    "default_icon": {
+      "128": "icons/icon128.png"
+    }
   },
   "icons": {
     "128": "icons/icon128.png"

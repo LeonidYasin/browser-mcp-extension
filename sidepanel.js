@@ -1,4 +1,4 @@
-// popup.js — управление настройками и статусом
+// sidepanel.js — управление настройками и статусом в боковой панели
 
 // ============================================================
 // Загрузка настроек
@@ -17,7 +17,7 @@ chrome.storage.local.get(['mcpUrl', 'mcpToken', 'bridgeUrl', 'autoSend', 'sendDe
 });
 
 // ============================================================
-// Сохранение
+// Сохранение настроек
 // ============================================================
 document.getElementById('save').addEventListener('click', () => {
   const bridgeUrl = document.getElementById('bridgeUrl').value.trim();
@@ -26,8 +26,16 @@ document.getElementById('save').addEventListener('click', () => {
   const autoSend = document.getElementById('autoSend').checked;
   const sendDelay = parseFloat(document.getElementById('sendDelay').value) || 1;
   
-  if (!bridgeUrl || !mcpUrl || !token) {
-    updateStatus('❌ Please fill all fields');
+  if (!bridgeUrl) {
+    updateStatus('❌ Please enter Bridge Server URL');
+    return;
+  }
+  if (!mcpUrl) {
+    updateStatus('❌ Please enter MCP Server URL');
+    return;
+  }
+  if (!token) {
+    updateStatus('❌ Please enter GitHub token');
     return;
   }
   
@@ -38,13 +46,13 @@ document.getElementById('save').addEventListener('click', () => {
     autoSend: autoSend,
     sendDelay: sendDelay
   }, () => {
-    updateStatus('✅ Saved!');
+    updateStatus('✅ Settings saved!');
     setTimeout(() => updateStatus('Ready'), 2000);
   });
 });
 
 // ============================================================
-// ТЕСТ
+// Тест соединения
 // ============================================================
 document.getElementById('test').addEventListener('click', async () => {
   const bridgeUrl = document.getElementById('bridgeUrl').value.trim();
@@ -56,56 +64,35 @@ document.getElementById('test').addEventListener('click', async () => {
     return;
   }
   
-  updateStatus('⏳ Fetching tools list...');
-  updatePopupStatus('processing', 'Fetching tools...');
+  updateStatus('⏳ Testing Bridge...');
+  updatePopupStatus('processing', 'Testing connection...');
   
   try {
     const bridgeRes = await fetch(`${bridgeUrl}/health`);
     if (!bridgeRes.ok) throw new Error(`Bridge HTTP ${bridgeRes.status}`);
     await bridgeRes.json();
     
-    const toolsRes = await fetch(`${bridgeUrl}/tools`);
-    if (!toolsRes.ok) throw new Error(`Tools HTTP ${toolsRes.status}`);
-    const toolsData = await toolsRes.json();
+    updateStatus('✅ Bridge OK, testing MCP...');
     
-    const tools = toolsData.tools || [];
-    console.log('📦 Available tools:', tools);
+    const mcpRes = await fetch(`${bridgeUrl}/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: '==MCP:list_commits== {"owner":"LeonidYasin","repo":"synapse"}',
+        config: {},
+        token: token,
+        url: mcpUrl
+      })
+    });
     
-    if (tools.length === 0) {
-      updateStatus('⚠️ No tools found. Check MCP server.');
-      updatePopupStatus('error', 'No tools found');
-      return;
-    }
+    if (!mcpRes.ok) throw new Error(`MCP HTTP ${mcpRes.status}`);
+    const data = await mcpRes.json();
+    if (data.error) throw new Error(data.error);
     
-    let successCount = 0;
-    const toolNames = tools.map(t => t.name || t);
-    
-    for (const toolName of toolNames) {
-      try {
-        const testRes = await fetch(`${bridgeUrl}/process`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: `==MCP:${toolName}== {"owner":"LeonidYasin","repo":"synapse"}`,
-            config: {},
-            token: token,
-            url: mcpUrl
-          })
-        });
-        
-        const testData = await testRes.json();
-        if (testData && !testData.error) {
-          successCount++;
-        }
-      } catch (e) {
-        console.log(`⚠️ Tool ${toolName} test failed:`, e);
-      }
-    }
-    
-    const statusMsg = `✅ Connected! ${successCount}/${toolNames.length} tools OK`;
-    updateStatus(statusMsg);
-    updatePopupStatus('done', statusMsg);
-    showToolsList(toolNames, successCount);
+    const tools = data.tools || [];
+    const successCount = tools.filter(t => t.success).length;
+    updateStatus(`✅ Connected! ${successCount}/${tools.length} tools OK`);
+    updatePopupStatus('done', `✅ ${successCount} tools available`);
     
   } catch (error) {
     updateStatus(`❌ ${error.message}`);
@@ -114,73 +101,33 @@ document.getElementById('test').addEventListener('click', async () => {
 });
 
 // ============================================================
-// ПОКАЗ СПИСКА ИНСТРУМЕНТОВ
-// ============================================================
-function showToolsList(tools, successCount) {
-  let toolsDiv = document.getElementById('toolsList');
-  if (!toolsDiv) {
-    toolsDiv = document.createElement('div');
-    toolsDiv.id = 'toolsList';
-    toolsDiv.style.marginTop = '12px';
-    toolsDiv.style.padding = '8px 12px';
-    toolsDiv.style.background = '#f5f5f5';
-    toolsDiv.style.borderRadius = '6px';
-    toolsDiv.style.fontSize = '12px';
-    toolsDiv.style.maxHeight = '150px';
-    toolsDiv.style.overflowY = 'auto';
-    
-    const status = document.getElementById('status');
-    status.parentNode.insertBefore(toolsDiv, status.nextSibling);
-  }
-  
-  const total = tools.length;
-  
-  let html = `<div style="font-weight:600;margin-bottom:4px;">📦 Tools (${successCount}/${total})</div>`;
-  html += `<div style="display:flex;flex-wrap:wrap;gap:4px;">`;
-  
-  for (const tool of tools) {
-    html += `<span style="background:#e8f5e9;padding:2px 8px;border-radius:12px;font-size:11px;">✅ ${tool}</span>`;
-  }
-  
-  html += `</div>`;
-  toolsDiv.innerHTML = html;
-}
-
-// ============================================================
-// СКАН — ИСПРАВЛЕННАЯ ВЕРСИЯ
+// Ручное сканирование
 // ============================================================
 document.getElementById('scan').addEventListener('click', () => {
-  updateStatus('⏳ Scanning...');
+  updateStatus('⏳ Scanning messages...');
   updatePopupStatus('processing', 'Scanning for markers...');
   
   chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
     if (!tabs[0] || !tabs[0].id) {
-      updateStatus('❌ No active tab');
+      updateStatus('❌ No active tab found');
       updatePopupStatus('error', 'No active tab');
       return;
     }
     
-    const tabId = tabs[0].id;
-    const tabUrl = tabs[0].url || '';
-    
-    // Проверяем, что мы на DeepSeek
-    if (!tabUrl.includes('chat.deepseek.com')) {
+    if (!tabs[0].url || !tabs[0].url.includes('chat.deepseek.com')) {
       updateStatus('❌ Please open chat.deepseek.com first');
       updatePopupStatus('error', 'Not on DeepSeek');
       return;
     }
     
-    // Пробуем отправить сообщение в content script
-    chrome.tabs.sendMessage(tabId, {type: 'SCAN_MESSAGES'}, (response) => {
-      // Если есть ошибка — content script не загружен
+    chrome.tabs.sendMessage(tabs[0].id, {type: 'SCAN_MESSAGES'}, (response) => {
       if (chrome.runtime.lastError) {
-        console.log('Content script not responding, injecting...');
+        console.log('Content script not responding, trying to inject...');
         updateStatus('⏳ Injecting content script...');
         updatePopupStatus('processing', 'Injecting script...');
         
-        // Инжектируем content script
         chrome.scripting.executeScript({
-          target: { tabId: tabId },
+          target: { tabId: tabs[0].id },
           files: ['content.js']
         }, () => {
           if (chrome.runtime.lastError) {
@@ -189,9 +136,8 @@ document.getElementById('scan').addEventListener('click', () => {
             return;
           }
           
-          // Ждём 500ms и пробуем снова
           setTimeout(() => {
-            chrome.tabs.sendMessage(tabId, {type: 'SCAN_MESSAGES'}, (response2) => {
+            chrome.tabs.sendMessage(tabs[0].id, {type: 'SCAN_MESSAGES'}, (response2) => {
               if (chrome.runtime.lastError) {
                 updateStatus('❌ Still cannot connect. Please refresh the page.');
                 updatePopupStatus('error', 'Still cannot connect');
@@ -211,13 +157,12 @@ document.getElementById('scan').addEventListener('click', () => {
         return;
       }
       
-      // Если ответ получен
       if (response?.success) {
         updateStatus(`✅ Found ${response.count} messages with MCP tags`);
         updatePopupStatus('done', `✅ ${response.count} messages found`);
         setTimeout(() => updateStatus('Ready'), 3000);
       } else {
-        updateStatus('❌ Scan failed: ' + (response?.error || 'unknown error'));
+        updateStatus('❌ Scan failed');
         updatePopupStatus('error', 'Scan failed');
       }
     });
@@ -225,7 +170,7 @@ document.getElementById('scan').addEventListener('click', () => {
 });
 
 // ============================================================
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// Вспомогательные функции
 // ============================================================
 function updatePopupStatus(type, message) {
   const box = document.getElementById('statusBox');
@@ -236,10 +181,18 @@ function updatePopupStatus(type, message) {
   text.textContent = message;
   
   switch(type) {
-    case 'idle': detail.textContent = 'Waiting for messages...'; break;
-    case 'processing': detail.textContent = '⏳ Please wait...'; break;
-    case 'done': detail.textContent = '✅ Ready to send!'; break;
-    case 'error': detail.textContent = '❌ Check logs'; break;
+    case 'idle':
+      detail.textContent = 'Waiting for messages...';
+      break;
+    case 'processing':
+      detail.textContent = '⏳ Please wait...';
+      break;
+    case 'done':
+      detail.textContent = '✅ Ready to send!';
+      break;
+    case 'error':
+      detail.textContent = '❌ Check logs for details';
+      break;
   }
 }
 
@@ -253,5 +206,20 @@ function updateStatus(message) {
   else status.classList.add('status-empty');
 }
 
+// ============================================================
+// Обновление статистики из content script
+// ============================================================
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'UPDATE_STATS') {
+    document.getElementById('processedCount').textContent = message.count || 0;
+    if (message.status) {
+      updatePopupStatus(message.status, message.statusText);
+    }
+    sendResponse({ success: true });
+  }
+});
+
+// ============================================================
 // Инициализация
+// ============================================================
 updatePopupStatus('idle', '🟢 Idle');
