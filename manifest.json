@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "MCP Browser Bridge",
+  "version": "1.2",
+  "description": "Execute MCP tools from browser chat and send results back",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:3001/*"],
+  "background": {
+    "service_worker": "worker/index.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "options_ui": {
+    "page": "popup.html",
+    "open_in_tab": false
+  },
+  "icons": {
+    "128": "icons/icon128.png"
+  }
+}
