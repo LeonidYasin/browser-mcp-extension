@@ -1,4 +1,5 @@
 // content.js — Content script для страницы чата DeepSeek
+// ФИНАЛЬНАЯ РАБОЧАЯ ВЕРСИЯ
 
 let enabled = true;
 let processing = false;
@@ -267,25 +268,12 @@ let processedAssistantMessages = new Set();
 function extractMCPTags(text) {
   const tools = [];
   
-  // Удаляем всё, что находится внутри code blocks (``` ... ```)
-  // Это предотвращает ложные срабатывания на примерах кода
-  let cleanText = text;
-  
-  // Убираем блоки кода с тройными обратными кавычками
-  cleanText = cleanText.replace(/```[\s\S]*?```/g, '');
-  
-  // Убираем блоки кода с textCopyDownload
-  cleanText = cleanText.replace(/textCopyDownload[\s\S]*?(?=```|$)/g, '');
-  
-  // Убираем inline code (одинарные обратные кавычки)
-  cleanText = cleanText.replace(/`[^`]*?`/g, '');
-  
-  console.log('🔍 MCP Bridge: Cleaned text (first 200 chars):', cleanText.substring(0, 200) + '...');
+  console.log('🔍 MCP Bridge: Extracting tags from text (first 200 chars):', text.substring(0, 200) + '...');
   
   for (const toolName of AVAILABLE_TOOLS) {
     const regex = new RegExp(`==MCP:${toolName}==\\s*(\\{[^]*?\\})`, 'gi');
     let match;
-    while ((match = regex.exec(cleanText)) !== null) {
+    while ((match = regex.exec(text)) !== null) {
       const argsStr = match[1];
       try {
         const args = JSON.parse(argsStr);
@@ -305,7 +293,7 @@ function extractMCPTags(text) {
   if (tools.length === 0) {
     const normalRegex = /<([a-z_]+)>\s*(\{[^]*?\})\s*<\/\1>/gi;
     let match;
-    while ((match = normalRegex.exec(cleanText)) !== null) {
+    while ((match = normalRegex.exec(text)) !== null) {
       const toolName = match[1];
       if (['div', 'span', 'p', 'a', 'b', 'i', 'strong', 'em'].includes(toolName.toLowerCase())) {
         continue;
