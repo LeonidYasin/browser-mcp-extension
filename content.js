@@ -3,22 +3,27 @@
 let enabled = true;
 let processing = false;
 let config = {
-  autoSend: true,
-  sendDelay: 1
+  autoSend: true,  // true = нажимать кнопку отправки после вставки, false = только вставить
+  sendDelay: 0.5
 };
 
 // Загружаем настройки
 chrome.storage.local.get(['enabled', 'autoSend', 'sendDelay'], (data) => {
   if (data.enabled !== undefined) enabled = data.enabled;
-  config.autoSend = data.autoSend !== false;
-  config.sendDelay = data.sendDelay || 1;
-  console.log('🔍 MCP Bridge: Config loaded', config);
+  config.autoSend = data.autoSend !== undefined ? data.autoSend : true;
+  config.sendDelay = data.sendDelay || 0.5;
+  console.log('🔍 MCP Bridge: Config loaded from storage', config);
 });
 
 // Слушаем изменения настроек
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes.autoSend) config.autoSend = changes.autoSend.newValue;
-  if (changes.sendDelay) config.sendDelay = changes.sendDelay.newValue || 1;
+  if (changes.autoSend !== undefined) {
+    config.autoSend = changes.autoSend.newValue !== false;
+    console.log('🔍 MCP Bridge: autoSend updated to', config.autoSend);
+  }
+  if (changes.sendDelay !== undefined) {
+    config.sendDelay = changes.sendDelay.newValue || 0.5;
+  }
 });
 
 // ==================== Утилиты ====================
@@ -33,29 +38,36 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ==================== Поиск элементов чата ====================
+// ==================== ПОИСК ПОЛЯ ВВОДА ====================
 
 function findInputArea() {
+  console.log('🔍 MCP Bridge: Looking for input field...');
+  
   const selectors = [
-    'textarea',
-    '[contenteditable="true"]',
+    'textarea[placeholder*="message"]',
+    'textarea[placeholder*="ask"]',
+    'textarea[placeholder*="Send"]',
+    'textarea[placeholder*="Type"]',
+    'textarea.ds-input',
+    'textarea._27c9245',
+    'textarea.ds-scroll-area',
     '#chat-input',
+    '#prompt-textarea',
+    '[contenteditable="true"]',
+    '[role="textbox"]',
     '.chat-input',
+    '.ds-chat-input',
+    '.message-input',
     '[class*="input"] textarea',
     '[class*="chat"] textarea',
-    '[class*="message-input"]',
-    '[role="textbox"]',
-    '.ds-input',
-    '#prompt-textarea',
-    'textarea[placeholder*="message"]',
-    'textarea[placeholder*="ask"]'
+    '[class*="message"] textarea'
   ];
   
   for (const selector of selectors) {
     try {
       const el = document.querySelector(selector);
       if (el) {
-        console.log('🔍 MCP Bridge: Found input with selector:', selector);
+        console.log('✅ MCP Bridge: Found input with selector:', selector);
         return el;
       }
     } catch (e) {}
@@ -63,41 +75,67 @@ function findInputArea() {
   
   const textareas = document.querySelectorAll('textarea');
   if (textareas.length > 0) {
-    console.log('🔍 MCP Bridge: Found textarea, using first one');
+    for (const ta of textareas) {
+      const rect = ta.getBoundingClientRect();
+      const isVisible = rect.width > 0 && rect.height > 0;
+      const isLarge = rect.width > 200 && rect.height > 30;
+      if (isVisible && isLarge) {
+        console.log('✅ MCP Bridge: Found textarea by visibility/size');
+        return ta;
+      }
+    }
+    console.log('✅ MCP Bridge: Found textarea, using first one');
     return textareas[0];
   }
   
-  console.error('🔍 MCP Bridge: No input found');
-  return null;
-}
-
-function findSendButton() {
-  const byAria = document.querySelector('[aria-label*="send" i], [aria-label*="Send" i]');
+  const editable = document.querySelector('[contenteditable="true"]');
+  if (editable) {
+    console.log('✅ MCP Bridge: Found contenteditable');
+    return editable;
+  }
+  
+  const byAria = document.querySelector('[aria-label*="message" i], [aria-label*="chat" i], [aria-label*="input" i]');
   if (byAria) {
-    console.log('🔍 MCP Bridge: Found send button by aria-label');
+    console.log('✅ MCP Bridge: Found by aria-label');
     return byAria;
   }
   
-  const classSelectors = [
+  console.error('❌ MCP Bridge: No input found!');
+  console.log('🔍 DEBUG: All textareas:', document.querySelectorAll('textarea'));
+  console.log('🔍 DEBUG: All contenteditable:', document.querySelectorAll('[contenteditable="true"]'));
+  
+  return null;
+}
+
+// ==================== ПОИСК КНОПКИ ОТПРАВКИ ====================
+
+function findSendButton() {
+  console.log('🔍 MCP Bridge: Looking for send button...');
+  
+  const selectors = [
+    'button[type="submit"]',
     '[class*="send"]',
     '[class*="submit"]',
+    'button[aria-label*="send" i]',
+    'button[aria-label*="Send" i]',
     '[class*="chat-send"]',
     '[class*="message-send"]',
     '[class*="input-send"]',
     '[class*="btn-send"]'
   ];
   
-  for (const selector of classSelectors) {
+  for (const selector of selectors) {
     try {
       const el = document.querySelector(selector);
       if (el) {
-        console.log('🔍 MCP Bridge: Found send button with selector:', selector);
+        console.log('✅ MCP Bridge: Found send button with selector:', selector);
         return el;
       }
     } catch (e) {}
   }
   
-  const allElements = document.querySelectorAll('div, span, svg, path');
+  // Ищем по иконке
+  const allElements = document.querySelectorAll('div, span, button, svg, path');
   for (const el of allElements) {
     const html = el.innerHTML?.toLowerCase() || '';
     const text = el.textContent?.toLowerCase() || '';
@@ -112,92 +150,125 @@ function findSendButton() {
         clickable = clickable.parentElement;
       }
       
-      if (clickable && clickable.click) {
-        console.log('🔍 MCP Bridge: Found send button via SVG/icon');
+      if (clickable && (clickable.click || clickable.tagName === 'BUTTON')) {
+        console.log('✅ MCP Bridge: Found send button via SVG/icon');
         return clickable;
       }
     }
   }
   
-  const allWithClass = document.querySelectorAll('[class]');
-  for (const el of allWithClass) {
-    const className = el.className?.toString()?.toLowerCase() || '';
-    if (className.includes('send') || className.includes('submit') || 
-        className.includes('chat-send') || className.includes('message-send')) {
-      console.log('🔍 MCP Bridge: Found send button by class name:', className);
-      return el;
-    }
-  }
-  
-  console.error('🔍 MCP Bridge: No send button found');
+  console.error('❌ MCP Bridge: No send button found');
   return null;
 }
 
-// ==================== Отправка результата (быстрая) ====================
+// ==================== ВСТАВКА В ПОЛЕ ВВОДА + ОТПРАВКА ====================
 
-async function sendMessageAsHuman(text) {
-  const textarea = findInputArea();
-  const sendBtn = findSendButton();
+async function insertTextAndSend(text, autoSend) {
+  console.log('📤 MCP Bridge: Inserting text into input field...');
+  console.log('📤 Auto-send (click send button):', autoSend ? 'ON ✅' : 'OFF ❌');
+  console.log('📝 Text length:', text.length);
+  
+  // Находим поле ввода
+  let textarea = null;
+  let attempts = 0;
+  
+  while (attempts < 5) {
+    textarea = findInputArea();
+    if (textarea) break;
+    console.log(`⏳ Attempt ${attempts + 1}/5: Input not found, waiting...`);
+    await sleep(500);
+    attempts++;
+  }
   
   if (!textarea) {
-    console.error('❌ MCP Bridge: Cannot find input');
+    console.error('❌ MCP Bridge: Cannot find input after 5 attempts');
+    console.log('📝 Text was:', text.substring(0, 200) + '...');
     return false;
   }
 
-  console.log('✅ MCP Bridge: Input found, sending message...');
+  console.log('✅ MCP Bridge: Input found, inserting text...');
 
-  if (textarea.tagName === 'TEXTAREA') {
-    textarea.value = '';
-  } else {
-    textarea.textContent = '';
-  }
-  textarea.dispatchEvent(new Event('input', { bubbles: true }));
-  textarea.dispatchEvent(new Event('change', { bubbles: true }));
-  
-  await sleep(100);
-
-  // Вставляем текст МГНОВЕННО
-  if (textarea.tagName === 'TEXTAREA') {
-    textarea.value = text;
-  } else {
-    textarea.textContent = text;
-  }
-  textarea.dispatchEvent(new Event('input', { bubbles: true }));
-
-  const delayMs = config.sendDelay * 1000;
-  console.log(`🔍 MCP Bridge: Waiting ${config.sendDelay}s before sending...`);
-  await sleep(delayMs);
-
-  console.log('🔍 MCP Bridge: Sending...');
-  const enterEvent = new KeyboardEvent('keydown', {
-    key: 'Enter',
-    code: 'Enter',
-    keyCode: 13,
-    which: 13,
-    bubbles: true,
-    cancelable: true
-  });
-  textarea.dispatchEvent(enterEvent);
-  
-  await sleep(100);
-  
-  if (sendBtn) {
-    if (sendBtn.click) {
-      sendBtn.click();
+  try {
+    // Очищаем поле
+    if (textarea.tagName === 'TEXTAREA') {
+      textarea.value = '';
     } else {
-      const clickEvent = new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        view: window
-      });
-      sendBtn.dispatchEvent(clickEvent);
+      textarea.textContent = '';
     }
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+    
+    await sleep(100);
+
+    // Вставляем текст
+    if (textarea.tagName === 'TEXTAREA') {
+      textarea.value = text;
+    } else {
+      textarea.textContent = text;
+    }
+    
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+    textarea.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    textarea.dispatchEvent(new Event('compositionend', { bubbles: true }));
+    
+    textarea.focus();
+    
+    if (textarea.setSelectionRange) {
+      const len = textarea.value ? textarea.value.length : textarea.textContent?.length || 0;
+      textarea.setSelectionRange(len, len);
+    }
+    
+    console.log('✅ MCP Bridge: Text inserted into input field');
+    console.log('📝 Preview:', text.substring(0, 200) + '...');
+    
+    // Если autoSend = true, НАЖИМАЕМ КНОПКУ ОТПРАВКИ
+    if (autoSend) {
+      console.log('🔍 MCP Bridge: Auto-send enabled, looking for send button...');
+      
+      await sleep(200);
+      
+      const sendBtn = findSendButton();
+      if (sendBtn) {
+        console.log('✅ MCP Bridge: Send button found, clicking...');
+        if (sendBtn.click) {
+          sendBtn.click();
+        } else {
+          const clickEvent = new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          });
+          sendBtn.dispatchEvent(clickEvent);
+        }
+        console.log('✅ MCP Bridge: Send button clicked!');
+      } else {
+        console.log('⚠️ MCP Bridge: Send button not found, trying Enter key...');
+        // Пробуем Enter как fallback
+        const enterEvent = new KeyboardEvent('keydown', {
+          key: 'Enter',
+          code: 'Enter',
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true
+        });
+        textarea.dispatchEvent(enterEvent);
+        console.log('✅ MCP Bridge: Enter key sent!');
+      }
+    } else {
+      console.log('🔍 MCP Bridge: Auto-send disabled, text inserted but not sent (you can edit and send manually)');
+    }
+    
+    return true;
+    
+  } catch (error) {
+    console.error('❌ MCP Bridge: Failed to insert/send:', error);
+    return false;
   }
-  
-  return true;
 }
 
-// ==================== Обработка XML-тегов ====================
+// ==================== Обработка MCP-маркеров ====================
 
 const AVAILABLE_TOOLS = [
   'create_or_update_file',
@@ -213,62 +284,56 @@ const AVAILABLE_TOOLS = [
 
 const AVAILABLE_TOOLS_SET = new Set(AVAILABLE_TOOLS);
 
-const HTML_TAGS = new Set([
-  'div', 'span', 'p', 'a', 'b', 'i', 'strong', 'em', 'ul', 'ol', 'li',
-  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr', 'td', 'th',
-  'thead', 'tbody', 'section', 'article', 'header', 'footer', 'nav',
-  'main', 'aside', 'figure', 'figcaption', 'blockquote', 'pre', 'code',
-  'br', 'hr', 'img', 'video', 'audio', 'canvas', 'svg', 'path',
-  'circle', 'rect', 'button', 'input', 'form', 'label', 'select',
-  'option', 'textarea', 'style', 'script', 'iframe', 'object',
-  'embed', 'param', 'meta', 'link', 'title', 'head', 'body', 'html'
-]);
+let processedAssistantMessages = new Set();
 
-function extractMCPTags(html) {
+function extractMCPTags(text) {
   const tools = [];
   
-  const normalRegex = /<([a-z_]+)>\s*(\{[^]*?\})\s*<\/\1>/gi;
-  let match;
+  console.log('🔍 MCP Bridge: Extracting tags from text (first 200 chars):', text.substring(0, 200) + '...');
   
-  while ((match = normalRegex.exec(html)) !== null) {
-    const tagName = match[1];
-    if (HTML_TAGS.has(tagName.toLowerCase())) {
-      console.log(`⏭️ Skipping HTML tag: <${tagName}>`);
-      continue;
-    }
-    
-    try {
-      const args = JSON.parse(match[2]);
-      tools.push({
-        toolName: tagName,
-        args: args,
-        original: match[0],
-        isEscaped: false
-      });
-    } catch (e) {
-      console.error('MCP Bridge: Failed to parse', tagName, e);
+  for (const toolName of AVAILABLE_TOOLS) {
+    const regex = new RegExp(`==MCP:${toolName}==\\s*(\\{[^]*?\\})`, 'gi');
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const argsStr = match[1];
+      console.log(`🔍 Found marker: ==MCP:${toolName}== with args: ${argsStr}`);
+      try {
+        const args = JSON.parse(argsStr);
+        tools.push({
+          toolName: toolName,
+          args: args,
+          original: match[0],
+          type: 'marker'
+        });
+      } catch (e) {
+        console.error(`MCP Bridge: Failed to parse args for ${toolName}`, e);
+      }
     }
   }
   
   if (tools.length === 0) {
-    const escapedRegex = /&lt;([a-z_]+)&gt;\s*(\{[^]*?\})\s*&lt;\/\1&gt;/gi;
-    while ((match = escapedRegex.exec(html)) !== null) {
-      const tagName = match[1];
-      if (HTML_TAGS.has(tagName.toLowerCase())) {
+    const normalRegex = /<([a-z_]+)>\s*(\{[^]*?\})\s*<\/\1>/gi;
+    let match;
+    while ((match = normalRegex.exec(text)) !== null) {
+      const toolName = match[1];
+      if (['div', 'span', 'p', 'a', 'b', 'i', 'strong', 'em'].includes(toolName.toLowerCase())) {
         continue;
       }
-      
+      if (!AVAILABLE_TOOLS_SET.has(toolName)) {
+        console.log(`⏭️ Skipping unknown XML tool: ${toolName}`);
+        continue;
+      }
       try {
         const args = JSON.parse(match[2]);
         tools.push({
-          toolName: tagName,
+          toolName: toolName,
           args: args,
           original: match[0],
-          isEscaped: true
+          type: 'xml'
         });
-        console.log(`🔍 Found escaped tag: &lt;${tagName}&gt;`);
+        console.log(`🔍 Found XML tag: <${toolName}>`);
       } catch (e) {
-        console.error('MCP Bridge: Failed to parse escaped', tagName, e);
+        console.error('MCP Bridge: Failed to parse XML', toolName, e);
       }
     }
   }
@@ -276,45 +341,34 @@ function extractMCPTags(html) {
   return tools;
 }
 
-async function processMessageElement(element, source = 'unknown') {
+async function processAssistantMessage(element) {
   if (!enabled || processing) return;
   
-  const html = element.innerHTML;
-  const text = element.textContent || '';
-  
-  console.log(`🔍 Processing ${source} message...`);
-  
-  let tools = extractMCPTags(html);
-  
-  if (tools.length === 0) {
-    tools = extractMCPTags(text);
+  const msgId = element.dataset.mcpId || Date.now() + '_' + Math.random().toString(36);
+  if (!element.dataset.mcpId) {
+    element.dataset.mcpId = msgId;
   }
   
+  if (processedAssistantMessages.has(msgId)) {
+    console.log(`⏭️ MCP Bridge: Message ${msgId} already processed, skipping`);
+    return;
+  }
+  
+  const fullText = element.textContent || '';
+  console.log('📝 MCP Bridge: ===== FULL MESSAGE TEXT =====');
+  console.log(fullText);
+  console.log('📝 MCP Bridge: ===== END OF MESSAGE =====');
+  
+  const tools = extractMCPTags(fullText);
+  
   if (tools.length === 0) {
-    if (text.includes('&lt;') || text.includes('<')) {
-      console.log('🔍 Found potential tags but no valid MCP tools in', source);
-    }
+    console.log('ℹ️ MCP Bridge: No MCP tags found in this message');
     return;
   }
   
   console.log('🔍 MCP Bridge: Found tools to execute:', tools.map(t => t.toolName));
   
-  const unknownTools = tools.filter(t => !AVAILABLE_TOOLS_SET.has(t.toolName));
-  if (unknownTools.length > 0) {
-    const names = unknownTools.map(t => t.toolName).join(', ');
-    console.warn(`⚠️ MCP Bridge: Unknown tools: ${names}. Available: ${AVAILABLE_TOOLS.join(', ')}`);
-    
-    let newHtml = element.innerHTML;
-    for (const tool of unknownTools) {
-      const errorHtml = `<div class="mcp-error">❌ Unknown tool: "${tool.toolName}". Available: ${AVAILABLE_TOOLS.join(', ')}</div>`;
-      newHtml = newHtml.replace(tool.original, errorHtml);
-    }
-    element.innerHTML = newHtml;
-    
-    const validTools = tools.filter(t => AVAILABLE_TOOLS_SET.has(t.toolName));
-    if (validTools.length === 0) return;
-    tools = validTools;
-  }
+  processedAssistantMessages.add(msgId);
   
   processing = true;
   
@@ -353,7 +407,9 @@ async function processMessageElement(element, source = 'unknown') {
     }
   }
   
-  if (results.length > 0 && config.autoSend) {
+  if (results.length > 0) {
+    console.log(`📊 MCP Bridge: ${results.length} tool(s) executed`);
+    
     const summary = results.map(r => {
       const prefix = r.ok ? '✅' : '❌';
       const truncated = r.result.length > 500 
@@ -364,153 +420,113 @@ async function processMessageElement(element, source = 'unknown') {
     
     const message = `[MCP Tools Executed]\n\n${summary}`;
     
-    await sleep(300);
-    await sendMessageAsHuman(message);
-  } else if (results.length > 0 && !config.autoSend) {
-    console.log('🔍 MCP Bridge: Auto-send disabled, result shown only in chat');
+    console.log(`📤 Auto-send (click send button) is: ${config.autoSend ? 'ON ✅' : 'OFF ❌'}`);
+    
+    // ВСЕГДА вставляем текст в поле ввода
+    // Если autoSend = true — ещё и нажимаем кнопку отправки
+    const delayMs = config.sendDelay * 1000;
+    if (delayMs > 0) {
+      console.log(`⏳ Waiting ${config.sendDelay}s before inserting...`);
+      await sleep(delayMs);
+    }
+    
+    await insertTextAndSend(message, config.autoSend);
   }
   
   processing = false;
 }
 
-// ==================== ПОИСК СООБЩЕНИЙ (автоматический) ====================
+// ==================== ПОИСК СООБЩЕНИЙ АССИСТЕНТА ====================
 
-function findMessagesWithMCPTags() {
-  console.log('🔍 MCP Bridge: Scanning for messages with MCP tags...');
+function findAndProcessNewAssistantMessages() {
+  console.log('🔍 MCP Bridge: Scanning for new assistant messages...');
   
-  // Ищем ВСЕ возможные контейнеры сообщений
-  const allElements = document.querySelectorAll('div, section, article, .ds-message, [class*="message"], [class*="assistant"], [class*="bot"], [class*="user"]');
+  const selectors = [
+    '.ds-message',
+    '[class*="assistant"]',
+    '[class*="bot"]',
+    '[class*="message"][class*="assistant"]'
+  ];
   
   let found = 0;
-  for (const el of allElements) {
-    const text = el.textContent || '';
-    if (!text.includes('</') && !text.includes('&lt;/')) continue;
-    if (!text.includes('{')) continue;
-    
-    // Проверяем, что это действительно сообщение (а не навигация, сайдбар и т.д.)
-    const isMessage = 
-      el.className?.toString()?.includes('message') ||
-      el.className?.toString()?.includes('assistant') ||
-      el.className?.toString()?.includes('bot') ||
-      el.className?.toString()?.includes('user') ||
-      el.matches?.('.ds-message') ||
-      el.id?.includes('message');
-    
-    if (!isMessage) continue;
-    
-    if (!pendingMessages.has(el)) {
-      pendingMessages.add(el);
-      found++;
-      const source = el.className?.includes('assistant') ? 'assistant' : 
-                     el.className?.includes('user') ? 'user' : 'unknown';
-      console.log(`🔍 Found ${source} message with MCP tags`);
-      
-      setTimeout(() => {
-        processMessageElement(el, source);
-        pendingMessages.delete(el);
-      }, 500);
-    }
+  for (const selector of selectors) {
+    try {
+      const elements = document.querySelectorAll(selector);
+      for (const el of elements) {
+        const isAssistant = 
+          el.className?.toString()?.includes('assistant') ||
+          el.className?.toString()?.includes('bot');
+        
+        if (!isAssistant) continue;
+        
+        const text = el.textContent || '';
+        let hasValidTool = false;
+        for (const tool of AVAILABLE_TOOLS) {
+          if (text.includes(`==MCP:${tool}==`) || text.includes(`<${tool}>`)) {
+            hasValidTool = true;
+            break;
+          }
+        }
+        if (!hasValidTool) continue;
+        if (!text.includes('{')) continue;
+        
+        const msgId = el.dataset.mcpId || '';
+        if (processedAssistantMessages.has(msgId)) continue;
+        
+        found++;
+        console.log(`🔍 Found NEW assistant message with MCP tags, processing...`);
+        processAssistantMessage(el);
+      }
+    } catch (e) {}
   }
   
   return found;
 }
 
-// ==================== ОСНОВНОЙ ЦИКЛ АВТОМАТИЧЕСКОГО СКАНИРОВАНИЯ ====================
-
-let scanInterval = null;
-
-function startAutoScan() {
-  // Первое сканирование через 2 секунды
-  setTimeout(() => {
-    const count = findMessagesWithMCPTags();
-    console.log(`🔍 Initial scan: found ${count} messages with MCP tags`);
-  }, 2000);
-  
-  // Повторное сканирование через 5 секунд
-  setTimeout(() => {
-    const count = findMessagesWithMCPTags();
-    console.log(`🔍 Second scan: found ${count} messages with MCP tags`);
-  }, 5000);
-  
-  // Запускаем периодическое сканирование каждые 3 секунды
-  // Это гарантирует, что новые сообщения от ассистента будут найдены
-  scanInterval = setInterval(() => {
-    const count = findMessagesWithMCPTags();
-    if (count > 0) {
-      console.log(`🔍 Periodic scan: found ${count} messages with MCP tags`);
-    }
-  }, 3000);
-}
-
-// ==================== DOM Observer (дополнительный) ====================
-
-let pendingMessages = new Set();
+// ==================== DOM Observer ====================
 
 const observer = new MutationObserver((mutations) => {
   for (const mutation of mutations) {
-    // Проверяем добавленные узлы
     for (const node of mutation.addedNodes) {
       if (node.nodeType !== 1) continue;
       
       const text = node.textContent || '';
-      if (!text.includes('</') && !text.includes('&lt;/')) continue;
+      
+      let hasValidTool = false;
+      for (const tool of AVAILABLE_TOOLS) {
+        if (text.includes(`==MCP:${tool}==`) || text.includes(`<${tool}>`)) {
+          hasValidTool = true;
+          break;
+        }
+      }
+      if (!hasValidTool) continue;
       if (!text.includes('{')) continue;
       
-      // Ищем родительское сообщение
       let msgElement = node;
       let attempts = 0;
       while (msgElement && attempts < 20) {
         attempts++;
         const classes = msgElement.className?.toString() || '';
-        if (classes.includes('message') || 
-            classes.includes('user') || 
-            classes.includes('assistant') || 
-            classes.includes('bot') ||
-            classes.includes('chat-message') ||
-            classes.includes('ds-message')) {
+        if (classes.includes('assistant') || classes.includes('bot')) {
           break;
         }
         msgElement = msgElement.parentElement;
       }
       
-      if (msgElement && !pendingMessages.has(msgElement)) {
-        pendingMessages.add(msgElement);
-        const source = msgElement.className?.includes('assistant') ? 'assistant' : 
-                       msgElement.className?.includes('user') ? 'user' : 'unknown';
-        console.log(`🔍 MutationObserver: found new ${source} message`);
-        setTimeout(() => {
-          processMessageElement(msgElement, source);
-          pendingMessages.delete(msgElement);
-        }, 1500);
-      }
-    }
-    
-    // Проверяем изменения атрибутов (DeepSeek может обновлять существующие элементы)
-    if (mutation.type === 'attributes') {
-      const target = mutation.target;
-      const text = target.textContent || '';
-      if ((text.includes('</') || text.includes('&lt;/')) && text.includes('{')) {
-        const classes = target.className?.toString() || '';
-        if (classes.includes('message') || classes.includes('assistant') || classes.includes('ds-message')) {
-          if (!pendingMessages.has(target)) {
-            pendingMessages.add(target);
-            console.log('🔍 MutationObserver: attribute change on message');
-            setTimeout(() => {
-              processMessageElement(target, 'assistant');
-              pendingMessages.delete(target);
-            }, 1000);
-          }
-        }
-      }
+      if (!msgElement) continue;
+      
+      const msgId = msgElement.dataset.mcpId || '';
+      if (processedAssistantMessages.has(msgId)) continue;
+      
+      console.log('🔍 MutationObserver: Found NEW assistant message, processing...');
+      processAssistantMessage(msgElement);
     }
   }
 });
 
 observer.observe(document.body, {
   childList: true,
-  subtree: true,
-  attributes: true,
-  attributeFilter: ['class', 'style']
+  subtree: true
 });
 
 // ==================== Обработка сообщений от popup ====================
@@ -519,7 +535,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SCAN_MESSAGES') {
     console.log('🔍 Manual scan triggered from popup');
     try {
-      const count = findMessagesWithMCPTags();
+      const count = findAndProcessNewAssistantMessages();
       sendResponse({ success: true, count: count });
     } catch (error) {
       console.error('Scan error:', error);
@@ -535,8 +551,15 @@ console.log('✅ MCP Browser Bridge loaded');
 console.log('📦 Available tools:', AVAILABLE_TOOLS.join(', '));
 console.log('⚙️ Config:', config);
 
-// Запускаем автоматическое сканирование
-startAutoScan();
+setTimeout(() => {
+  const count = findAndProcessNewAssistantMessages();
+  console.log(`🔍 Initial scan: found ${count} new assistant messages with MCP tags`);
+}, 2000);
+
+setTimeout(() => {
+  const count = findAndProcessNewAssistantMessages();
+  console.log(`🔍 Second scan: found ${count} new assistant messages with MCP tags`);
+}, 5000);
 
 // ==================== Стили ====================
 
