@@ -267,10 +267,25 @@ let processedAssistantMessages = new Set();
 function extractMCPTags(text) {
   const tools = [];
   
+  // Удаляем всё, что находится внутри code blocks (``` ... ```)
+  // Это предотвращает ложные срабатывания на примерах кода
+  let cleanText = text;
+  
+  // Убираем блоки кода с тройными обратными кавычками
+  cleanText = cleanText.replace(/```[\s\S]*?```/g, '');
+  
+  // Убираем блоки кода с textCopyDownload
+  cleanText = cleanText.replace(/textCopyDownload[\s\S]*?(?=```|$)/g, '');
+  
+  // Убираем inline code (одинарные обратные кавычки)
+  cleanText = cleanText.replace(/`[^`]*?`/g, '');
+  
+  console.log('🔍 MCP Bridge: Cleaned text (first 200 chars):', cleanText.substring(0, 200) + '...');
+  
   for (const toolName of AVAILABLE_TOOLS) {
     const regex = new RegExp(`==MCP:${toolName}==\\s*(\\{[^]*?\\})`, 'gi');
     let match;
-    while ((match = regex.exec(text)) !== null) {
+    while ((match = regex.exec(cleanText)) !== null) {
       const argsStr = match[1];
       try {
         const args = JSON.parse(argsStr);
@@ -290,7 +305,7 @@ function extractMCPTags(text) {
   if (tools.length === 0) {
     const normalRegex = /<([a-z_]+)>\s*(\{[^]*?\})\s*<\/\1>/gi;
     let match;
-    while ((match = normalRegex.exec(text)) !== null) {
+    while ((match = normalRegex.exec(cleanText)) !== null) {
       const toolName = match[1];
       if (['div', 'span', 'p', 'a', 'b', 'i', 'strong', 'em'].includes(toolName.toLowerCase())) {
         continue;
@@ -494,7 +509,6 @@ setTimeout(() => {
 
 const style = document.createElement('style');
 style.textContent = `
-  /* Блок "выполняется" */
   .mcp-executing {
     background: #1a237e !important;
     border: 1px solid #4caf50 !important;
@@ -506,13 +520,10 @@ style.textContent = `
     color: #e0e0e0 !important;
     animation: mcp-pulse 1.5s infinite;
   }
-  
   @keyframes mcp-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.6; }
   }
-  
-  /* Блок результата */
   .mcp-result {
     background: #1e1e1e !important;
     border: 1px solid #4caf50 !important;
@@ -521,13 +532,11 @@ style.textContent = `
     margin: 4px 0;
     color: #e0e0e0 !important;
   }
-  
   .mcp-result-header {
     font-weight: bold;
     margin-bottom: 4px;
     color: #66bb6a !important;
   }
-  
   .mcp-result-output {
     background: #2d2d2d !important;
     padding: 8px;
@@ -540,8 +549,6 @@ style.textContent = `
     word-break: break-all;
     color: #e0e0e0 !important;
   }
-  
-  /* Блок ошибки */
   .mcp-error {
     background: #311b1b !important;
     border: 1px solid #ef5350 !important;
